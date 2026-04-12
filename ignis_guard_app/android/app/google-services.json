@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "393470767647",
+    "firebase_url": "https://ignisguard-cc7a3-default-rtdb.europe-west1.firebasedatabase.app",
+    "project_id": "ignisguard-cc7a3",
+    "storage_bucket": "ignisguard-cc7a3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:393470767647:android:1cf0b3edbc757aae3a9b2a",
+        "android_client_info": {
+          "package_name": "com.example.ignis_guard_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAX2KtL4wE8TpPriAU6OqpYE8llrzQzQF8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
