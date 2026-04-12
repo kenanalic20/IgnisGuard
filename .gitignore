@@ -1,2 +1,7 @@
 # Local firmware secrets
 firmware/sketch_mar10a/secrets.h
+
+# Environment files
+.env
+.env.*
+*.env
