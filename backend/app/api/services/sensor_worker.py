@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from api.models.request_model import SensorData
 from api.services.camera_service import CameraService
+from api.services.email_service import EmailService
 from api.services.firebase_service import FirebaseService
 from api.services.ml_service import predict
 
@@ -21,6 +22,7 @@ class SensorWorker:
         self._firebase_thread: threading.Thread | None = None
         self._last_sensor_signature: tuple[float, float, float] | None = None
         self.camera_service = CameraService()
+        self.email_service = EmailService()
         self.firebase_service = FirebaseService()
         self.device_id = os.getenv("FIREBASE_DEVICE_ID", "esp32")
         self.firebase_input_enabled = (
@@ -141,33 +143,36 @@ class SensorWorker:
 
     def _handle_prediction(self, device_id: str, data: SensorData, prediction: str) -> None:
         severity = prediction.lower()
-        if severity not in {"warning", "danger"}:
-            logger.info(
-                "Prediction below alert threshold; Firebase write skipped: device_id=%s prediction=%s",
-                device_id,
-                prediction,
-            )
-            return
-
+        
+        # Only capture image for warning/danger predictions
         image_base64 = None
-        image_path = self.camera_service.capture_image(device_id=device_id)
-        if image_path:
-            logger.info("Camera image captured: %s", image_path)
-            image_base64 = self.firebase_service.save_image_base64(
-                local_path=image_path,
-                device_id=device_id,
-            )
-        else:
-            logger.info("Camera disabled or image unavailable; continuing without image")
+        if severity in {"warning", "danger"}:
+            image_path = self.camera_service.capture_image(device_id=device_id)
+            if image_path:
+                logger.info("Camera image captured: %s", image_path)
+                image_base64 = self.firebase_service.save_image_base64(
+                    local_path=image_path,
+                    device_id=device_id,
+                )
+            else:
+                logger.info("Camera disabled or image unavailable; continuing without image")
 
         event = {
             "device_id": device_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
             "prediction": prediction,
             "temperature": data.temperature,
             "humidity": data.humidity,
             "gas": data.gas,
-            "image_base64": image_base64,
         }
+        if image_base64:
+            event["timestamp"] = datetime.now(timezone.utc).isoformat()
+            event["image_base64"] = image_base64
         self.firebase_service.save_alert_event(event)
+        self.email_service.send_alert_email(
+            device_id=device_id,
+            prediction=prediction,
+            temperature=data.temperature,
+            humidity=data.humidity,
+            gas=data.gas,
+        )
         logger.info("Alert event written to Firebase: device_id=%s prediction=%s", device_id, prediction)

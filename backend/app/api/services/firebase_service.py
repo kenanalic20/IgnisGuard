@@ -86,13 +86,13 @@ class FirebaseService:
 
         device_id = event.get("device_id", "esp32")
         payload = {
+            "alerts": event.get("prediction", ""),
             device_id: {
                 "temperature": event.get("temperature"),
                 "humidity": event.get("humidity"),
                 "gas": event.get("gas"),
             },
             "image": event.get("image_base64") or "",
-            "alerts": event.get("prediction", ""),
             "timestamp": event.get("timestamp", ""),
         }
 
