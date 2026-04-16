@@ -1,7 +1,8 @@
 import os
+import smtplib
 import logging
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail, Email, To, Content
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 logger = logging.getLogger(__name__)
 
@@ -9,8 +10,8 @@ logger = logging.getLogger(__name__)
 class EmailService:
     def __init__(self):
         self.enabled = os.getenv("EMAIL_ENABLED", "false").lower() == "true"
-        self.api_key = os.getenv("SENDGRID_API_KEY")
-        self.from_email = os.getenv("EMAIL_FROM", "noreply@ignisguard.com")
+        self.gmail_user = os.getenv("GMAIL_USER")
+        self.gmail_password = os.getenv("GMAIL_PASSWORD")  # App Password, not regular password
         self.recipient_emails = os.getenv("EMAIL_RECIPIENTS", "").split(",")
         # Filter out empty strings
         self.recipient_emails = [email.strip() for email in self.recipient_emails if email.strip()]
@@ -18,7 +19,7 @@ class EmailService:
         logger.info(
             "EmailService initializing: enabled=%s from=%s recipients=%d",
             self.enabled,
-            self.from_email,
+            self.gmail_user,
             len(self.recipient_emails),
         )
 
@@ -26,10 +27,10 @@ class EmailService:
             logger.info("EmailService disabled by EMAIL_ENABLED")
             return
 
-        if not self.api_key:
+        if not self.gmail_user or not self.gmail_password:
             raise RuntimeError(
-                "EMAIL_ENABLED=true but SENDGRID_API_KEY is not set. "
-                "Get free API key from https://sendgrid.com"
+                "EMAIL_ENABLED=true but GMAIL_USER or GMAIL_PASSWORD not set. "
+                "Set GMAIL_USER=your-email@gmail.com and GMAIL_PASSWORD=your-app-password"
             )
 
         if not self.recipient_emails:
@@ -58,19 +59,23 @@ Please check the IgnisGuard dashboard for more details.
         """.strip()
 
         try:
-            sg = SendGridAPIClient(self.api_key)
-            mail = Mail(
-                from_email=self.from_email,
-                to_emails=self.recipient_emails,
-                subject=subject,
-                plain_text_content=body,
-            )
-            response = sg.send(mail)
+            # Create message
+            msg = MIMEMultipart()
+            msg["From"] = self.gmail_user
+            msg["To"] = ", ".join(self.recipient_emails)
+            msg["Subject"] = subject
+            msg.attach(MIMEText(body, "plain"))
+
+            # Send via Gmail SMTP
+            server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
+            server.login(self.gmail_user, self.gmail_password)
+            server.send_message(msg)
+            server.quit()
+
             logger.info(
-                "Email sent successfully: device_id=%s prediction=%s status=%d",
+                "Email sent successfully via Gmail: device_id=%s prediction=%s",
                 device_id,
                 prediction,
-                response.status_code,
             )
             return True
         except Exception as exc:
