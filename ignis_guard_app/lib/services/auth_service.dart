@@ -63,24 +63,6 @@ class AuthService {
     }
   }
 
-  // Password reset
-  Future<void> resetPassword(String email) async {
-    try {
-      await _firebaseAuth.sendPasswordResetEmail(email: email);
-    } on FirebaseAuthException catch (e) {
-      throw _handleAuthException(e);
-    }
-  }
-
-  // Update password
-  Future<void> updatePassword(String newPassword) async {
-    try {
-      await _firebaseAuth.currentUser?.updatePassword(newPassword);
-    } on FirebaseAuthException catch (e) {
-      throw _handleAuthException(e);
-    }
-  }
-
   String _handleAuthException(FirebaseAuthException e) {
     switch (e.code) {
       case 'user-not-found':

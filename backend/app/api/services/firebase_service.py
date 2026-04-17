@@ -85,6 +85,19 @@ class FirebaseService:
             return
 
         device_id = event.get("device_id", "esp32")
+        
+        # Read previous image and timestamp from Firebase
+        previous_data = db.reference(self.root_path).get()
+        previous_image = ""
+        previous_timestamp = ""
+        if isinstance(previous_data, dict):
+            previous_image = previous_data.get("image", "")
+            previous_timestamp = previous_data.get("timestamp", "")
+        
+        # Use new values if provided, otherwise keep previous values
+        image_base64 = event.get("image_base64") if event.get("image_base64") else previous_image
+        timestamp = event.get("timestamp") if event.get("timestamp") else previous_timestamp
+        
         payload = {
             "alerts": event.get("prediction", ""),
             device_id: {
@@ -92,8 +105,8 @@ class FirebaseService:
                 "humidity": event.get("humidity"),
                 "gas": event.get("gas"),
             },
-            "image": event.get("image_base64") or "",
-            "timestamp": event.get("timestamp", ""),
+            "image": image_base64,
+            "timestamp": timestamp,
         }
 
         db.reference(self.root_path).update(payload)
