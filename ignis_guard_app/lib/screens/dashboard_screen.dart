@@ -19,7 +19,7 @@ class _DashboardState extends State<Dashboard> {
 
   Color _getGasColor(double gasLevel) {
     if (gasLevel < 400) return Colors.green;
-    if (gasLevel < 700) return Colors.orange;
+    if (gasLevel < 800) return Colors.orange;
     return Colors.red;
   }
 
@@ -31,7 +31,7 @@ class _DashboardState extends State<Dashboard> {
 
   String _getGasStatus(double gasLevel) {
     if (gasLevel < 400) return 'Normal';
-    if (gasLevel < 700) return 'Elevated';
+    if (gasLevel < 800) return 'Elevated';
     return 'Alert!';
   }
 
