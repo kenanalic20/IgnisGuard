@@ -1,5 +1,5 @@
 #include <DHT.h>
-#include<WiFi.h>
+#include <WiFi.h>
 #include <FirebaseESP32.h>
 #include "secrets.h"
 
@@ -13,8 +13,11 @@ FirebaseConfig config;
 FirebaseAuth auth;
 FirebaseJson json;
 
-const int gasThreshold = 1500;
+const int gasThreshold = 1000;
 const int fanSpinDuration = 10000;
+
+float gasBaseline = 2500.0;
+float gasMax = 4000.0;
 
 int gas = 0;
 float temperature = 0;
@@ -22,82 +25,166 @@ float humidity = 0;
 
 volatile bool fanSpinActive = false;
 volatile unsigned long fanStartTime = 0;
+
+// ✅ SAFE ISR FLAG
+volatile bool readGasFlag = false;
+
 hw_timer_t *timer = NULL;
+unsigned long lastSend = 0;
 
 DHT dht(DHTPIN, DHTTYPE);
 
-void IRAM_ATTR onTimer() {
-  gas = analogRead(MQ135);
-  if (gas > gasThreshold) {
-    digitalWrite(fanPin, HIGH);
-    fanSpinActive = true;
-    fanStartTime = millis();
+
+// 🔧 GAS MAPPING
+int mapGas(float gasRaw) {
+  float normalized = (gasRaw - gasBaseline) / (gasMax - gasBaseline);
+
+  if (normalized < 0) normalized = 0;
+  if (normalized > 1) normalized = 1;
+
+  return 200 + normalized * (1500 - 200);
+}
+
+//Updating baseline
+void updateBaseline(float gasRaw) {
+  static bool warmedUp = false;
+  static unsigned long startTime = millis();
+
+  // wait 2.5 minutes after startup
+  if (!warmedUp) {
+    if (millis() - startTime > 30000) {
+      warmedUp = true;
+      Serial.println("Sensor warmed up, starting baseline update...");
+    } else {
+      return;
+    }
+  }
+
+  // only update if close to baseline (clean air assumption)
+  if (abs(gasRaw - gasBaseline) < 200) {
+    gasBaseline = gasBaseline * 0.99 + gasRaw * 0.01;
   }
 }
 
+
+// ✅ SAFE ISR (ONLY FLAG)
+void IRAM_ATTR onTimer() {
+  readGasFlag = true;
+}
 
 
 void setup() {
   pinMode(fanPin, OUTPUT);
   pinMode(MQ135, INPUT);
-  dht.begin();
+
   Serial.begin(115200);
+  dht.begin();
+
+  // 🔌 WiFi connect
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Connecting to WiFi");
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
+
+  Serial.println("\nWiFi connected!");
+
+  // 🔥 Firebase config
   config.api_key = API_KEY;
   config.database_url = DATABASE_URL;
 
   auth.user.email = EMAIL;
   auth.user.password = PASSWORD;
-  Firebase.begin(&config,&auth);
+
+  Firebase.begin(&config, &auth);
   Firebase.reconnectWiFi(true);
-  
+
+  // ⏱️ Timer setup (1 sec)
   timer = timerBegin(0, 80, true);
   timerAttachInterrupt(timer, &onTimer, true);
-  timerAlarmWrite(timer, 1000, true);
+  timerAlarmWrite(timer, 1000000, true); // 1s
   timerAlarmEnable(timer);
 }
+
+
+// 📡 SEND DATA
 void sendUpTime() {
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi not connected!");
+    return;
+  }
+
+  if (!Firebase.ready()) {
+    Serial.println("Firebase not ready!");
+    return;
+  }
+
   json.clear();
 
   json.set("temperature", temperature);
   json.set("humidity", humidity);
-  json.set("gas", gas);
+  json.set("gas", mapGas(gas));
+  json.set("gas_raw", gas); // debug
 
-  Serial.println("Preparing to send data to Firebase...");
-
-  String jsonStr;
-  json.toString(jsonStr, true); 
+  Serial.println("Sending to Firebase...");
 
   if (Firebase.setJSON(firebaseData, "/esp32", json)) {
     Serial.println("Firebase OK");
   } else {
     Serial.println("Firebase FAILED");
-    String err = firebaseData.errorReason().c_str();
-    Serial.println(err);
+    Serial.println(firebaseData.errorReason());
   }
 }
+
+
 void loop() {
-  delay(1000);
-  Serial.print("Gas: ");
-  Serial.println(gas);
-  delay(1000);  //for debug
+
+  // ✅ HANDLE GAS READ OUTSIDE ISR
+  if (readGasFlag) {
+    readGasFlag = false;
+
+    gas = analogRead(MQ135);
+
+    updateBaseline(gas); 
+
+    if (mapGas(gas) > gasThreshold) {
+      digitalWrite(fanPin, HIGH);
+      fanSpinActive = true;
+      fanStartTime = millis();
+    }
+  }
+
+  // 🌡️ Read sensors
   temperature = dht.readTemperature();
   humidity = dht.readHumidity();
-  if (isnan(temperature) || isnan(humidity)) {
-    Serial.println("DHT read failed!");
-  } else {
-    Serial.print("Temp: ");
-    Serial.println(temperature);
 
-    Serial.print("Humidity: ");
-    Serial.println(humidity);
+  // 📤 Send every 5 sec
+  if (millis() - lastSend > 1500) {
+
+    Serial.print("Raw Gas: ");
+    Serial.print(gas);
+
+    Serial.print(" | Mapped: ");
+    Serial.println(mapGas(gas));
+
+    if (isnan(temperature) || isnan(humidity)) {
+      Serial.println("DHT read failed!");
+    } else {
+      Serial.print("Temp: ");
+      Serial.println(temperature);
+
+      Serial.print("Humidity: ");
+      Serial.println(humidity);
+    }
+
+    sendUpTime();
+    lastSend = millis();
   }
-  sendUpTime();
+
+  // 🌀 Fan control
   if (fanSpinActive) {
     unsigned long currentMillis = millis();
     if (currentMillis - fanStartTime >= fanSpinDuration) {
@@ -105,6 +192,10 @@ void loop() {
       fanSpinActive = false;
     }
   }
- 
-  
+
+  // 🔁 WiFi auto-reconnect
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Reconnecting WiFi...");
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  }
 }
