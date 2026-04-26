@@ -13,11 +13,11 @@ FirebaseConfig config;
 FirebaseAuth auth;
 FirebaseJson json;
 
-const int gasThreshold = 1000;
+const int gasThreshold = 900;
 const int fanSpinDuration = 10000;
 
-float gasBaseline = 2500.0;
-float gasMax = 4000.0;
+float gasBaseline = 2000.0;
+float gasMax = 3500.0;
 
 int gas = 0;
 float temperature = 0;
@@ -45,26 +45,6 @@ int mapGas(float gasRaw) {
   return 200 + normalized * (1500 - 200);
 }
 
-//Updating baseline
-void updateBaseline(float gasRaw) {
-  static bool warmedUp = false;
-  static unsigned long startTime = millis();
-
-  // wait 2.5 minutes after startup
-  if (!warmedUp) {
-    if (millis() - startTime > 30000) {
-      warmedUp = true;
-      Serial.println("Sensor warmed up, starting baseline update...");
-    } else {
-      return;
-    }
-  }
-
-  // only update if close to baseline (clean air assumption)
-  if (abs(gasRaw - gasBaseline) < 200) {
-    gasBaseline = gasBaseline * 0.99 + gasRaw * 0.01;
-  }
-}
 
 
 // ✅ SAFE ISR (ONLY FLAG)
@@ -148,8 +128,6 @@ void loop() {
 
     gas = analogRead(MQ135);
 
-    updateBaseline(gas); 
-
     if (mapGas(gas) > gasThreshold) {
       digitalWrite(fanPin, HIGH);
       fanSpinActive = true;
@@ -169,6 +147,9 @@ void loop() {
 
     Serial.print(" | Mapped: ");
     Serial.println(mapGas(gas));
+
+    Serial.print("Baseline Gas: ");
+    Serial.println(gasBaseline);
 
     if (isnan(temperature) || isnan(humidity)) {
       Serial.println("DHT read failed!");
